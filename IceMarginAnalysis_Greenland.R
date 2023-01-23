@@ -32,7 +32,11 @@ library(raster)
 library(ggplot2)
 library(foreach)
 library(ncdf4)
-
+library(spatialEco)
+library(circular)
+library(parallel)
+library(snowfall)
+library(truncnorm)
 
 ##################
 # paths
@@ -41,16 +45,18 @@ library(ncdf4)
 # Paths
 path_outlines<-'F:\\OtherResearch\\Greenland\\PROMICE_database\\Glacier Outline'  # PROMICE
 fnMarginOutline<-'PROMICdiss'
+path_outlines2 <- 'F:\\OtherResearch\\Greenland\\Outlines\\'
+path_cci <- 'F:\\OtherResearch\\Greenland\\cci_data\\outlines'
+fnMarginOutline_cci <- 'cci_go_greenland_icesheet_2000'
 path_outlines_RGI<-'F:\\OtherResearch\\Greenland\\Outlines\\RGI\\05_rgi60_GreenlandPeriphery'                          # CCI
 fnMarginOutline_RGI<-'05_rgi60_GreenlandPeriphery'
 pathDEM_topo <- 'F:\\OtherResearch\\Greenland\\Bathymetry'
 path_figs <- 'F:\\OtherResearch\\Greenland\\Figures'
 path_mankoff <- 'F:\\OtherResearch\\Greenland\\PROMICE_database\\MankoffData\\sector_D.csv'
 path_mouginot <- 'F:\\OtherResearch\\Greenland\\Mouginot\\'
+path_noel <- 'F:\\OtherResearch\\Greenland\\NoelData'
 
 path_sectorMargins <- 'F:\\OtherResearch\\Greenland\\Code\\SectorMargins'
-
-fnOuterBuffer<-'Outer_Buffer2'
 
 # Bedmachine data
 bedmachineRAW <- 'F:\\OtherResearch\\Greenland\\Bedmachine\\5000000451838\\160281892\\BedMachineGreenland-2017-09-20.nc'
@@ -60,7 +66,7 @@ GLbasins <- 'F:\\OtherResearch\\Greenland\\Mouginot\\drainagebasins\\GRE_Basins_
 # sector data
 GLsectors <- 'F:\\OtherResearch\\Greenland\\Mouginot\\drainagebasins\\MouginotRignot\\doi_10.7280_D1WT11__v1\\Greenland_Basins_PS_v1.4.2.shp'
 
-#read PROMICE margin  including all ice caps
+#read PROMICE margin  including all ice caps (1980s)
 ogrInfo(path_outlines,fnMarginOutline)
 margin_pEXT<-readOGR(dsn=path_outlines,layer=fnMarginOutline)
 margin_pEXT<-SpatialPolygons(margin_pEXT@polygons,proj4string=margin_pEXT@proj4string)
@@ -72,8 +78,17 @@ margin_glaciers <- margin_pEXT_transf[2]
 margin_peary <- margin_pEXT_transf[3]
 margin_icecaps <- margin_pEXT_transf[4]
 
-margin_line <- as(margin_actual,'SpatialLines')
-#margin_line_buffered <- gBuffer(margin_line,width=1000,byid=T)
+#read CCI Margin (Rastner2012)
+
+margin_CCI_sf = sf::read_sf("F:\\OtherResearch\\Greenland\\cci_data\\outlines\\cci_go_greenland_icesheet_2000.shp")  # assumes in project root
+margin_CCI_sf = sf::st_transform(margin_CCI_sf, crs('+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'))
+
+library(sf)
+library(sp)
+
+margin_CCI <- sf::as_Spatial(st_geometry(margin_CCI_sf), IDs = as.character(1:nrow(margin_CCI_sf)))
+margin_CCI_nonunataks <- remove.holes(margin_CCI)
+
 
 #read Rastner margin (Rastner2012)
 ogrInfo(path_outlines_RGI,fnMarginOutline_RGI)
@@ -81,12 +96,7 @@ margin_RGI<-readOGR(dsn=path_outlines_RGI,layer=fnMarginOutline_RGI)
 margin_RGI<-SpatialPolygons(margin_RGI@polygons,proj4string=margin_RGI@proj4string)
 projection(margin_RGI)<-CRS("+init=epsg:4326")
 margin_RGI_transf<-spTransform(margin_RGI,crs('+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'))
-
-##################
-#################
-###################
-#CONTINUE HERE TO REMOVE THE RASTER DATA FROM THE PROMICE DATA
-rgeos::gDifference
+margin_RGI_transf <- margin_RGI_transf %>% gBuffer(byid=TRUE, width=0)  # clean intersections/loops
 
 # read basin outlines
 ogrInfo(GLbasins)
@@ -94,6 +104,24 @@ basins_pEXT<-readOGR(dsn=GLbasins)
 basins_pEXT<-SpatialPolygons(basins_pEXT@polygons,proj4string=basins_pEXT@proj4string)
 projection(basins_pEXT)<-CRS("+init=epsg:4326")
 basins_pEXT_transf<-spTransform(basins_pEXT,crs('+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'))
+
+##################
+#Remove marginal glaciers from the PROMICE dataset (multiple hours of computing on single core)
+if(file.exists(path_outlines_RGI&'\\PROMICE_Rastner_clean.shp')){
+  ogrInfo(path_outlines_RGI,'PROMICE_Rastner_clean')
+  cleanmargin <- readOGR(dsn=path_outlines_RGI,layer='PROMICE_Rastner_clean')
+  cleanmargin <- SpatialPolygons(cleanmargin@polygons,proj4string=cleanmargin@proj4string)
+} else{
+croppedmargin <- rgeos::gDifference(margin_actual,margin_RGI_transf)
+writeOGR(as(croppedmargin, "SpatialPolygonsDataFrame"), dsn=path_outlines_RGI&'\\PROMICE_Rastner.shp',layer=1, driver="ESRI Shapefile")
+
+croppedmargin_decoupled <- disaggregate(croppedmargin)
+cleanmargin <- croppedmargin_decoupled[which.max(area(croppedmargin_decoupled))] # Remove small 'islands'
+writeOGR(as(cleanmargin, "SpatialPolygonsDataFrame"), dsn=path_outlines_RGI&'\\PROMICE_Rastner_clean.shp',layer=1, driver="ESRI Shapefile")
+}
+cleanmargin_nonunataks <- remove.holes(cleanmargin)
+margin_line <- as(cleanmargin,'SpatialLines') # Convert to Spatial Line for processing
+margin_line_nonuna <- as(cleanmargin_nonunataks,'SpatialLines') # Convert to Spatial Line for processing
 
 # read sector outlines (Mouginot2019)
 ogrInfo(GLsectors)
@@ -109,6 +137,12 @@ bedmachine_bed[bedmachine_bed<=-1000]<-NA
 projection(bedmachine_bed) <- '+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'
 
 coarse_bed <- aggregate(bedmachine_bed,fact=1)
+
+################### RACMO data from Brice Noel (Noel2019/2016)
+################### 
+fullRACMO1km <- raster(path_noel&'\\SMB\\smb_rec.1958-2019.BN_RACMO2.3p2_FGRN055_GrIS.MM.nc')
+fullRACMOgrid <- raster(path_noel&'\\Icemask_Topo_Iceclasses_lon_lat_average_1km_GrIS.nc',varname='Promicemask')
+
 
 ################### 
 # read and process velocities (Mouginot2019)
@@ -186,33 +220,106 @@ text(x=1.5, y = seq(0,1,l=5), labels = seq(0,38,l=5))
 rasterImage(rev(legend_image[0:100]), 0, 0, 1,1)
 dev.off()
 
-
+##############
+# Overlay subbasins on margin
+##############
 
 # Test one subbasin
-ltermFrac <- vector()
-for(i in 1:length(sectors_pEXT)){
+ltermFrac <- matrix(NA,nrow=length(sectors_pEXT),ncol=2)
+
+#for(i in 1:length(sectors_pEXT))
+testfunc <- function(i){
+#if(is.na(over(sectors_pEXT[i],margin_RGI_transf))){
 sector_line <- as(sectors_pEXT[i],'SpatialLines')
-xx <- gBuffer(sector_line,width=2000,byid=T)
-op <- crop(margin_line,extent(sector_line))
 
-if(!is.null(op)){
-margin_Sector <- gIntersection(xx,op)
+if(!is.null(sector_line)){
+cleanmargin_line <- as(margin_CCI,'SpatialLines')
+sector_buff <- buffer(sectors_pEXT[i], width = 1000, dissolve = T)
+cleanmargin_sector <- crop(cleanmargin_line,extent(sector_buff)+c(1000*c(1,1,-1,-1)))
 
-df<-SpatialLinesDataFrame(margin_Sector, data.frame(id=1:length(margin_Sector)))
+cleanmargin_line_nonuna <- as(margin_CCI_nonunataks,'SpatialLines')
+cleanmargin_sector_nonuna <- crop(cleanmargin_line_nonuna,extent(sector_buff)+c(1000*c(1,1,-1,-1)))
+
+#extraFrame <- c(-1,1,-1,1)
+#if(extent(cleanmargin_sector)[2]<0){extraFrame[2] <- 1}
+#if(extent(cleanmargin_sector)[3]<0){extraFrame[3] <- 1}
+
+#opt<-crop(sector_line,extent(cleanmargin_sector)+c(1000*extraFrame))
+#buff<- buffer(cleanmargin_sector, width = 1000, dissolve = T)
+#opt2 <- raster::intersect(opt,buff)
+
+#buff1 <- buffer(sector_line, width = 2000, dissolve = T)
+#buff1 <- remove.holes(buff1)
+#marginCCIcrop <- crop(margin_CCI_nonunataks,extent(sector_buff)+c(1000*extraFrame))
+                      
+#opp<-gDifference(buff1,marginCCIcrop)
+
+if(!is.null(cleanmargin_sector)){
+margin_sector <- raster::intersect(cleanmargin_sector,sector_buff)
+row.names(margin_sector) <- "1"
+
+df<-SpatialLinesDataFrame(margin_sector, data.frame(id=1:length(margin_sector)))
 writeOGR(df, dsn=path_sectorMargins&'\\marginSector'&i&'.shp' ,layer="id",driver="ESRI Shapefile")
 
-opt <- rasterize(margin_Sector,coarse_bed)
-opt[which(coarse_bed[]>0&!is.na(opt[]))] <- 2
-opt[which(coarse_bed[]<=0&!is.na(opt[]))] <- 3
-opt[which(opt[]==1)] <- NA
-writeRaster(opt, path_sectorMargins&'\\marginSector'&i&'.tif','GTiff',overwrite=T)
+#marg_ras <- rasterize(margin_sector,coarse_bed)
+#marg_ras[which(coarse_bed[]>0&!is.na(marg_ras[]))] <- 2
+#marg_ras[which(coarse_bed[]<=0&!is.na(marg_ras[]))] <- 3
+#marg_ras[which(marg_ras[]==1)] <- NA
+#writeRaster(marg_ras, path_sectorMargins&'\\marginSector'&i&'.tif','GTiff',overwrite=T)
 
-#marginasPoints <- rasterToPoints(opt)
+#ltermFrac[i,1] <- length(which(marg_ras[]==2)) / length(which(marg_ras[]>1))
 
-ltermFrac[i] <- length(which(opt[]==2)) / length(which(opt[]>1))
+#tabData <- as.table(ltermFrac[i,1])
+#rownames(tabData) <- c('fraction')
+
+#write.table(tabData, file = path_sectorMargins&'\\temp\\marginSector'&i&'.txt')
+
 }
+if(!is.null(cleanmargin_sector_nonuna)){
+  margin_sector_nonuna <- raster::intersect(cleanmargin_sector_nonuna,sector_buff)
+  row.names(margin_sector_nonuna) <- "1"
+  
+  df<-SpatialLinesDataFrame(margin_sector_nonuna, data.frame(id=1:length(margin_sector_nonuna)))
+  writeOGR(df, dsn=path_sectorMargins&'\\marginSector_nonuna'&i&'.shp' ,layer="id",driver="ESRI Shapefile")
+
+  #marg_ras_nonuna <- rasterize(margin_sector_nonuna,coarse_bed)
+  #marg_ras_nonuna[which(coarse_bed[]>0&!is.na(marg_ras_nonuna[]))] <- 2
+  #marg_ras_nonuna[which(coarse_bed[]<=0&!is.na(marg_ras_nonuna[]))] <- 3
+  #marg_ras_nonuna[which(marg_ras_nonuna[]==1)] <- NA
+  #writeRaster(marg_ras_nonuna, path_sectorMargins&'\\marginSector_nonuna'&i&'.tif','GTiff',overwrite=T)
+  
+  #ltermFrac[i,2] <- length(which(marg_ras_nonuna[]==2)) / length(which(marg_ras_nonuna[]>1))
+  
+  #tabData <- as.table(ltermFrac[i,2])
+  #rownames(tabData) <- c('fraction')
+
+  #write.table(tabData, file = path_sectorMargins&'\\temp\\marginSector_nonuna'&i&'.txt')
+}
+}
+#}
 print(i)
 }
+
+# number of workers (leave one to keep system more responsive)
+nworkers <- detectCores()-4
+
+# Run Model and save results in blocks to 
+
+  # run entire function parallelized
+sfInit(parallel=T,cpu=nworkers, type="SOCK")                                                # initialize cluster
+loadlib <- lapply(c('raster','truncnorm','rgdal'),                                                  # load required packages in cluster
+                    function(x) sfLibrary(x, character.only=T))
+sfExportAll()                                                                               # transfer all variables to clusters
+sfClusterSetupRNG()                                                                         # set up random number generator
+  
+#ModelRunSeries <- seq(1,length(sectors_pEXT),1)[-c(6,7,53,54,106,109,159,160,211,212)];
+ModelRunSeries <- c(253,seq(234,237,1),205,206,184,seq(177,179,1),seq(153,158,1),99)
+tout.multi <- system.time(
+    out <- sfLapply(ModelRunSeries, testfunc)
+)
+sfStop() 
+
+
 
 p<-sectors_pEXT
 
@@ -220,7 +327,7 @@ p<-sectors_pEXT
 ( p.df <- data.frame( ID=1:length(p), row.names = pid) )  
 p <- SpatialPolygonsDataFrame(p, p.df)
 ltermFrac2<- seq(1,260,1)*0 + 1
-ltermFrac2[1:length(ltermFrac)] <- ltermFrac
+ltermFrac2[1:length(ltermFrac[,1])] <- ltermFrac[,1]
 p@data$frac <- ltermFrac2
 pal <- colorRampPalette(c("white", "red"))
 
