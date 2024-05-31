@@ -1,19 +1,19 @@
 ################################################################################
-# Extract Ice Margin Morphology for separate segments
+# Extract Ice Margin Morphology for separate segments for individual analysis
 #
-# 
 # IceMarginExtractor.R
 #
 # ReadMe: 
 #
+# https://github.com/fidelsteiner/tGISM
+#
 # Input:
-
 # 
 #
 # Created:          2021/10/15
-# Latest Revision:  2021/10/05
+# Latest Revision:  2024/02/16
 #
-# Jakob F Steiner| ICIMOD | jakob.steiner@icimod.org | x-hydrolab.org 
+# Jakob F Steiner | jakob.steiner@uni-graz.at | fidelsteiner.github.io 
 ################################################################################
 # clear entire workspace (excl. packages)
 rm(list = ls())
@@ -24,50 +24,6 @@ gc()
 '&.default' <- .Primitive('&')
 '&.character' <- function(...) paste(...,sep='')
 
-
-##################
-#to change
-##################
-GlacierName <- 'RedRock'
-
-fnDEM_1 <- 'PGO_2017-08-15_RedRockCliff_DEM_2m.tif'
-fnDEM_2 <- 'c0_reg_dem_ProjectRaster1.tif'
-
-
-HiawathaDEM_1 <- '29_36_1_1_2m_v3.0_reg_dem_proj.tif'
-HiawathaDEM_2 <- '29_36_1_2_2m_v3.0_reg_dem_proj.tif'
-HiawathaDEM_3 <- '29_36_2_2_2m_v3.0_reg_dem_proj.tif'
-HiawathaDEM_4 <- '29_35_2_1_2m_v3.0_reg_dem_proj.tif'
-HiawathaDEM_5 <- '29_35_2_2_2m_v3.0_reg_dem_proj.tif'
-HiawathaDEM_6 <- '29_35_1_2_2m_v3.0_reg_dem_proj.tif'
-
-RussellDEM_1 <- '16_38_2_1_2m_v3.0_reg_dem_proj.tif'
-RussellDEM_2 <- '15_38_2_2_2m_v3.0_reg_dem_proj.tif'
-
-KronprinsDEM_1 <- '31_43_2_2_2m_v3.0_reg_dem_proj.tif'
-KronprinsDEM_2 <- '31_43_2_1_2m_v3.0_reg_dem_proj.tif'
-
-fnMarginOutline <- 'RedRock_ManualBuffer'
-fnMarginOutlineGrIS <- 'RedRockGrIS_ManualBuffer'
-
-fnMarginHiawatha <- 'marginSector176_buffer'
-fnMarginRussell <- 'marginSector71_buffer'
-fnMarginKronprins <- 'marginSector57_buffer'
-##################
-#to change
-##################
-
-# Paths
-path_outlines<-'E:\\Research\\OtherResearch\\Greenland\\Code\\SectorMargins\\ManualRedRock'
-path_figs<-'E:\\Research\\OtherResearch\\Greenland\\Figures'
-pathDEM_Pleiades<-'E:\\Research\\OtherResearch\\Greenland\\Pleiades\\DEM\\2017-08-15_RedRockCliff\\PGO\\2017-08-15_RedRockCliff'
-pathDEM_Arctic<-'D:\\Work\\Research\\tGISM\\DEMData\\ArcticDEM'
-
-projec<-'+proj=utm +datum=WGS84'
-
-projec_utm<-'+proj=utm +zone=19N +datum=WGS84'
-projec_27N<-'+proj=utm +zone=27N +datum=WGS84'
-
 # packages (if not installed yet: install.packages('examplePackage')
 library(rgdal)
 library(rgeos)
@@ -76,535 +32,526 @@ library(raster)
 library(ggplot2)
 library(dplyr)
 library(ggridges)
-library(SpaDES)
 library(RColorBrewer)
+library(terra)
+library(sf)
+library(ncdf4)
+##################
+# Multiple subsites for analysis of the margin
+##################
 
-# read Margin Outlines
-ogrInfo(path_outlines,fnMarginOutline)
-margin_pEXT<-readOGR(dsn=path_outlines,layer=fnMarginOutline)
-#projection(margin_pEXT)<-projec
-margin_pEXT<-SpatialPolygons(margin_pEXT@polygons,proj4string=margin_pEXT@proj4string)
+data_basepath <- 'E:\\GeospatialData'                     # path for heavy input data
+data_ArcticDEM <- 'E:\\ArcticDEM'                         # path for ArcticDEM data
+output_basepath <- 'C:\\Work\\Research\\tGISM'            # path for code/output   
 
-ogrInfo(path_outlines,fnMarginOutlineGrIS)
-margin_pEXTGrIS<-readOGR(dsn=path_outlines,layer=fnMarginOutlineGrIS)
-#projection(margin_pEXT)<-projec
-margin_pEXTGrIS<-SpatialPolygons(margin_pEXTGrIS@polygons,proj4string=margin_pEXTGrIS@proj4string)
+##################
+# Paths
+##################
+
+path_outlines <- 'E:\\Research\\OtherResearch\\Greenland\\Code\\SectorMargins\\ManualRedRock' # Not used, remove
+path_figs <- paste(output_basepath,'\\Figures',sep = "")
+pathDEM_Pleiades <- paste(data_basepath,'DEMData\\ValidationDEMs\\RedRock_Pleiades\\Pleiades\\DEM\\2017-08-15_RedRockCliff\\PGO\\2017-08-15_RedRockCliff',sep = "")
+pathDEM_Arctic <- data_ArcticDEM
+data_Bedmachine <- 'E:\\GeospatialData\\Bedmachine\\5000000451838\\160281892' # path Bedmachine
+data_lakes <- 'E:\\GeospatialData\\Lakes\\Greenland' # path Lakes
+
+projec <-'+proj=utm +datum=WGS84'
+
+projec_utm <-'+proj=utm +zone=19 +north +datum=WGS84'
+projec_27N <-'+proj=utm +zone=27N +datum=WGS84'
+
+##################
+# Loop through DEMs and margin segments for individual processing
+##################
+
+# read Bedmachine for later processing
+bedM <- raster(paste(data_Bedmachine,'\\BedmachineRaster_proj.tif',sep=''))
+
+# read lakes for later processing
+poplak <- ogrInfo(paste(data_lakes,'\\20170101-ESACCI-L3S_GLACIERS-IML-MERGED-fv1_corrected.shp',sep = ""))
+margin_lak <- readOGR(dsn=paste(paste(data_lakes,'\\20170101-ESACCI-L3S_GLACIERS-IML-MERGED-fv1_corrected.shp',sep = "")),layer = poplak$layer)
+margin_lak <- spTransform(margin_lak, CRS('+proj=longlat +datum=WGS84 +no_defs'))
+
+# read peripheral glaciers for later processing
+poppg <- ogrInfo('E:\\GeospatialData\\Periphery\\05_rgi60_GreenlandPeriphery.shp')
+margin_pgic <- readOGR(dsn='E:\\GeospatialData\\Periphery\\05_rgi60_GreenlandPeriphery.shp',layer = poppg$layer)
+margin_pgic <- spTransform(margin_pgic, CRS('+proj=longlat +datum=WGS84 +no_defs'))
+
+# read complete ice sheet outline for peripheral intersection (2nd outline are all merged subbasins to avoid overlapping margins between peripheral outlines and ice sheet margin being counted twice)
+popish <- ogrInfo('E:\\GeospatialData\\cci_data\\outlines\\cci_go_greenland_WGS_fixedintersections.shp')
+margin_popish <- readOGR(dsn='E:\\GeospatialData\\cci_data\\outlines\\cci_go_greenland_WGS_fixedintersections.shp',layer = popish$layer)
+#margin_popish <- spTransform(margin_popish, CRS('+proj=longlat +datum=WGS84 +no_defs'))
+popish2 <- ogrInfo('E:\\GeospatialData\\cci_data\\outlines\\cci_go_greenland_WGS_fixedintersections_mergedsubbasins.shp')
+margin_popish2 <- readOGR(dsn='E:\\GeospatialData\\cci_data\\outlines\\cci_go_greenland_WGS_fixedintersections_mergedsubbasins.shp',layer = popish2$layer)
+margin_popish2 <- spTransform(margin_popish, CRS('+proj=longlat +datum=WGS84 +no_defs'))
+icemargin_total <- spTransform(margin_popish,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"))
+icemargin_total2 <- spTransform(margin_pgic,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"))
+
+margSegments <- list.files(paste(output_basepath,'\\Sectors\\SectorBuffers_nuna',sep = ""), pattern='.shp$', all.files=FALSE, full.names=FALSE) # List of segments of the margin with buffer around
+margSectors <- list.files(paste(output_basepath,'\\Sectors\\SectorMargins_nuna',sep = ""), pattern='.shp$', all.files=FALSE, full.names=FALSE) # List of segments of the margin without buffer around
+
+DEMSegments <- list.files(paste(data_ArcticDEM,'\\DEMs',sep = ""), pattern='.tif$', all.files=FALSE, full.names=TRUE) # list of all DEMs around the margin of Greenland
+DEMSegments_names <- sub('\\.tif$','',list.files(paste(data_ArcticDEM,'\\DEMs',sep = ""), pattern='\\.tif$', all.files=FALSE, full.names=F)) # list of all DEMs around the margin of Greenland
+
+# Prepare slope and roughness maps from base DEMs
+
+for(DEMsl in 1:length(DEMSegments)){
+
+  if(!file.exists(paste('E:\\ArcticDEM\\DEMs\\slopes\\',DEMSegments_names[DEMsl],'_slope.tif',sep = ""))){
+  tryCatch({
+    DEM_ <- raster(DEMSegments[DEMsl])
+    marg <- crop(icemargin_total,extent(DEM_)+ c(-500,500,-500,500))
+    marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-500,500,-500,500))
+    marg <- merge(extent(marg),extent(marg2))
+    DEM_ <- crop(DEM_,extent(marg) + c(-500,500,-500,500))
+    slope_ <- terrain(DEM_, opt="slope", unit="degrees", neighbors=8)
+    writeRaster(slope_, filename=paste('E:\\ArcticDEM\\DEMs\\slopes\\',DEMSegments_names[DEMsl],'_slope.tif',sep = ""), format="GTiff", overwrite=TRUE)#}
+    
+  }, error=function(e){
+    tryCatch({
+      DEM_ <- raster(DEMSegments[DEMsl])
+      marg <- crop(icemargin_total,extent(DEM_)+ c(-1000,1000,-1000,1000))
+      marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-1000,1000,-1000,1000))
+      marg <- merge(extent(marg),extent(marg2))
+      DEM_ <- crop(DEM_,extent(marg) + c(-1000,1000,-1000,1000))
+      slope_ <- terrain(DEM_, opt="slope", unit="degrees", neighbors=8)
+      writeRaster(slope_, filename=paste('E:\\ArcticDEM\\DEMs\\slopes\\',DEMSegments_names[DEMsl],'_slope.tif',sep = ""), format="GTiff", overwrite=TRUE)#}
+      
+    }, error=function(e){
+      tryCatch({
+        DEM_ <- raster(DEMSegments[DEMsl])
+        marg <- crop(icemargin_total,extent(DEM_)+ c(-5000,5000,-5000,5000))
+        marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-5000,5000,-5000,5000))
+        marg <- merge(extent(marg),extent(marg2))
+        DEM_ <- crop(DEM_,extent(marg) + c(-1000,1000,-1000,1000))
+        slope_ <- terrain(DEM_, opt="slope", unit="degrees", neighbors=8)
+        writeRaster(slope_, filename=paste('E:\\ArcticDEM\\DEMs\\slopes\\',DEMSegments_names[DEMsl],'_slope.tif',sep = ""), format="GTiff", overwrite=TRUE)#}
+        
+      }, error=function(e){
+        DEM_ <- raster(DEMSegments[DEMsl])
+        slope_ <- terrain(DEM_, opt="slope", unit="degrees", neighbors=8)
+        writeRaster(slope_, filename=paste('E:\\ArcticDEM\\DEMs\\slopes\\',DEMSegments_names[DEMsl],'_slope.tif',sep = ""), format="GTiff", overwrite=TRUE)#}
+        
+      })
+    })
+  })}
+
+  removeTmpFiles(h=1)
+  if(!file.exists(paste('E:\\ArcticDEM\\DEMs\\TRI\\',DEMSegments_names[DEMsl],'_TRI.tif',sep = ""))){
+    tryCatch({
+      DEM_ <- raster(DEMSegments[DEMsl])
+      marg <- crop(icemargin_total,extent(DEM_)+ c(-500,500,-500,500))
+      marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-500,500,-500,500))
+      DEM_ <- crop(DEM_,extent(marg) + c(-500,500,-500,500))
+      TRI_ <- terrain(DEM_, opt="TRI") # terrain ruggedness index (Wilson et al.2007)
+      #TRI_ <- crop(TRI_,extent(marg) + c(-1000,1000,-1000,1000))
+      ruggedIce <- mask(TRI_,marg)
+      ruggedIce2 <- mask(TRI_,marg2)
+      TRI_[!is.na(ruggedIce[])] <- NA
+      TRI_[!is.na(ruggedIce2[])] <- NA      
+      writeRaster(TRI_, filename=paste('E:\\ArcticDEM\\DEMs\\TRI\\',DEMSegments_names[DEMsl],'_TRI.tif',sep = ""), format="GTiff", overwrite=TRUE)
+      
+    }, error=function(e){
+      tryCatch({
+        DEM_ <- raster(DEMSegments[DEMsl])
+        
+        marg <- crop(icemargin_total,extent(DEM_)+ c(-1000,1000,-1000,1000))
+        marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-1000,1000,-1000,1000))
+        DEM_ <- crop(DEM_,extent(marg) + c(-1000,1000,-1000,1000))
+        TRI_ <- terrain(DEM_, opt="TRI") # terrain ruggedness index (Wilson et al.2007)
+        #TRI_ <- crop(TRI_,extent(marg) + c(-1000,1000,-1000,1000))
+        ruggedIce <- mask(TRI_,marg)
+        ruggedIce2 <- mask(TRI_,marg2)
+        TRI_[!is.na(ruggedIce[])] <- NA
+        TRI_[!is.na(ruggedIce2[])] <- NA
+        TRI_[!is.na(ruggedIce[])] <- NA
+        writeRaster(TRI_, filename=paste('E:\\ArcticDEM\\DEMs\\TRI\\',DEMSegments_names[DEMsl],'_TRI.tif',sep = ""), format="GTiff", overwrite=TRUE)
+        
+      }, error=function(e){
+        tryCatch({
+          DEM_ <- raster(DEMSegments[DEMsl])
+          
+          marg <- crop(icemargin_total,extent(DEM_)+ c(-5000,5000,-5000,5000))
+          marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-5000,5000,-5000,5000))
+          DEM_ <- crop(DEM_,extent(marg) + c(-1000,1000,-1000,1000))
+          TRI_ <- terrain(DEM_, opt="TRI") # terrain ruggedness index (Wilson et al.2007)
+          #TRI_ <- crop(TRI_,extent(marg) + c(-1000,1000,-1000,1000))
+          ruggedIce <- mask(TRI_,marg)
+          ruggedIce2 <- mask(TRI_,marg2)
+          TRI_[!is.na(ruggedIce[])] <- NA
+          TRI_[!is.na(ruggedIce2[])] <- NA
+
+          writeRaster(TRI_, filename=paste('E:\\ArcticDEM\\DEMs\\TRI\\',DEMSegments_names[DEMsl],'_TRI.tif',sep = ""), format="GTiff", overwrite=TRUE)
+          
+        }, error=function(e){
+          DEM_ <- raster(DEMSegments[DEMsl])
+          marg <- crop(icemargin_total,extent(DEM_)+ c(-10000,10000,-10000,10000))
+          marg2 <- crop(icemargin_total2,extent(DEM_)+ c(-10000,10000,-10000,10000))
+
+          TRI_ <- terrain(DEM_, opt="TRI") # terrain ruggedness index (Wilson et al.2007)
+          #TRI_ <- crop(TRI_,extent(marg) + c(-1000,1000,-1000,1000))
+          ruggedIce <- mask(TRI_,marg)
+          ruggedIce2 <- mask(TRI_,marg2)
+          TRI_[!is.na(ruggedIce[])] <- NA
+          TRI_[!is.na(ruggedIce2[])] <- NA
+          writeRaster(TRI_, filename=paste('E:\\ArcticDEM\\DEMs\\TRI\\',DEMSegments_names[DEMsl],'_TRI.tif',sep = ""), format="GTiff", overwrite=TRUE)
+          
+        }, error=function(e){})
+      })
+    })}
+  
+      if(DEMsl %% 1==0) {
+    cat(paste0("DEM progress: ", floor(DEMsl/length(DEMSegments)*100), "%"))}
+}
+
+# Core Processing
+for(i in 1:length(margSegments)){
+SubBasinID <- as.numeric(regmatches(margSegments[i], gregexpr("[[:digit:]]+", margSegments[i]))) # original ID of Greenland subbasin
+  
+if(!file.exists(paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'_violin.png',sep = ""))){
+  # read in the 100 m buffer along the margin produced from the outline
+popOgr <- ogrInfo(paste(output_basepath,'\\Sectors\\SectorBuffers_nuna\\',margSegments[i],sep = ""))
+margin_buf <- readOGR(dsn=paste(output_basepath,'\\Sectors\\SectorBuffers_nuna',sep = ""),layer = popOgr$layer)
+margin_con <- SpatialPolygons(margin_buf@polygons,proj4string=margin_buf@proj4string)
+
+# read in the actual margin segments
+popOgr <- ogrInfo(paste(output_basepath,'\\Sectors\\SectorMargins_nuna\\',margSectors[i],sep = ""))
+margin_sec_buf <- readOGR(dsn=paste(output_basepath,'\\Sectors\\SectorMargins_nuna\\',margSectors[i],sep = ""),layer = popOgr$layer)
+if(SubBasinID>299){
+  margin_sec_con <- margin_sec_buf
+  margin_sec_con <- spTransform(margin_sec_con,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"))
+  margin_con <- spTransform(margin_con,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"))
+  margin_sec_con <- st_cast( st_as_sf(margin_sec_con, feature = seq_len(length(terrestrial_margin_sec_con))), "MULTILINESTRING")
+  margin_sec_con <- as_Spatial(margin_sec_con)
+  
+}else{margin_sec_con <- SpatialLines(margin_sec_buf@lines,proj4string=margin_sec_buf@proj4string)}
+
+# produce polylines without nunataks for statistics
+marg_nonuna <- st_as_sf(margin_sec_con, feature = seq_len(length(margin_sec_con)))
+
+if(SubBasinID>299){
+  library(nngeo)
+  marg_nonuna <- st_cast(marg_nonuna, "MULTIPOLYGON")
+  marg_nonuna <- st_remove_holes(marg_nonuna)
+  marg_nonuna <- st_cast(marg_nonuna, "MULTILINESTRING")
+  marg_nonuna <- as_Spatial(marg_nonuna)
+}else{
+  ## cast to LINESTRING 
+  marg_nonuna <- st_cast(marg_nonuna, "LINESTRING")
+  marg_nonuna_area <- st_polygonize(marg_nonuna)
+  marg_nunas <- which(as.vector(st_area(marg_nonuna_area))>0)
+if(!is.null(length(marg_nunas))){marg_nonuna <- as_Spatial(marg_nonuna[-marg_nunas,])}
+if(is.null(length(marg_nunas))){marg_nonuna <- as_Spatial(marg_nonuna)}}
+
+tab_marginStats <- read.csv(paste(output_basepath,'\\Sectors\\marginstatistics.csv',sep=''))
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),1] <- SubBasinID
+
+# if subbasin part of ice sheet remove intersection with peripheral glaciers
+if(SubBasinID<261){
+peripheral_subbasin <- crop(margin_pgic,extent(spTransform(margin_con,CRS("+proj=longlat +datum=WGS84 +no_defs")))+c(-2,2,-2,2))
+peripheral_subbasin <- rgeos::gBuffer(spTransform(peripheral_subbasin,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")),width=100)
+peripheral_overlap <- gIntersection(peripheral_subbasin, margin_sec_con)
+peripheral_overlap_nonuna <- gIntersection(peripheral_subbasin,marg_nonuna)
+}
+
+# if subbasin part of peripheral glaciers and ice caps remove intersection with ice sheet
+if(SubBasinID>299){
+  peripheral_subbasin <- crop(margin_popish2,extent(spTransform(margin_con,CRS("+proj=longlat +datum=WGS84 +no_defs")))+c(-2,2,-2,2))
+  peripheral_subbasin <- rgeos::gBuffer(spTransform(peripheral_subbasin,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")),width=100)
+  peripheral_overlap <- gIntersection(peripheral_subbasin, margin_sec_con)
+  peripheral_overlap_nonuna <- peripheral_overlap
+}
+
+if(is.null(peripheral_overlap)){
+  margin_pgiccontact <- 0}
+if(!is.null(peripheral_overlap)){
+  margin_pgiccontact <- rgeos::gLength(peripheral_overlap)
+  peripheral_overlap <- spTransform(peripheral_overlap, CRSobj='+proj=longlat +datum=WGS84 +no_defs')
+}
+
+if(is.null(peripheral_overlap_nonuna)){
+  margin_pgiccontact_nonuna <- 0}
+if(!is.null(peripheral_overlap_nonuna)){
+  margin_pgiccontact_nonuna <- rgeos::gLength(peripheral_overlap_nonuna)
+  peripheral_overlap_nonuna <- spTransform(peripheral_overlap_nonuna, CRSobj='+proj=longlat +datum=WGS84 +no_defs')
+}
+
+# analyse the margin properties with respect to the bed topography
+bedM_subbasin <- crop(bedM, extent(spTransform(margin_con,CRS("+proj=longlat +datum=WGS84 +no_defs"))))
+bedM_subbasin[bedM_subbasin>10] <- NA
+if(SubBasinID==260){
+  xy<-xyFromCell(bedM_subbasin,1:length(bedM_subbasin))
+  bedM_subbasin[which(xy[,1]<=-37)]<-NA
+  bedM_subbasin[which(xy[,2]<=66)]<-NA
+}
+if(SubBasinID>299){
+  bedM_subbasin[bedM_subbasin<=-200] <- NA
+  bedM_subbasin <- aggregate(bedM_subbasin,fact=2)
+}
+if(SubBasinID==301){
+  xy<-xyFromCell(bedM_subbasin,1:length(bedM_subbasin))
+  bedM_subbasin[which(xy[,1]>=-65&xy[,2]>=76.5)]<-NA
+  bedM_subbasin[which(xy[,1]>=-66&xy[,1]<=-60&xy[,2]>=75.7)]<-NA
+
+}
+
+# convert to polygons
+if(is.nan(cellStats(bedM_subbasin,'mean',na.rm=T))){
+  bedM_subbasin[1] <- 0
+  projection(bedM_subbasin) <- '+proj=longlat +datum=WGS84 +no_defs'
+}
+bedM_polygon <- rasterToPolygons(bedM_subbasin, dissolve=TRUE)
+projection(bedM_polygon) <- '+proj=longlat +datum=WGS84 +no_defs'
+margin_sec_con <- spTransform(margin_sec_con, CRSobj=projection(bedM_polygon))
+marg_nonuna <- spTransform(marg_nonuna, CRSobj=projection(bedM_polygon))
+
+marine_overlap <- gIntersection(margin_sec_con,bedM_polygon)
+marine_overlap_nonuna <- gIntersection(marg_nonuna,bedM_polygon)
+
+if(is.null(marine_overlap)){
+  margin_marinecontact <- 0}
+if(!is.null(marine_overlap)){
+  margin_marinecontact <- rgeos::gLength(spTransform(marine_overlap, CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")))}
+
+if(is.null(marine_overlap_nonuna)){
+  margin_marinecontact_nonuna <- 0}
+if(!is.null(marine_overlap_nonuna)){
+  margin_marinecontact_nonuna <- rgeos::gLength(spTransform(marine_overlap_nonuna, CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")))}
+
+# analyse the margin properties with respect to lakes
+lake_overlap <- gIntersection(margin_sec_con, margin_lak)
+lake_overlap_nonuna <- gIntersection(marg_nonuna, margin_lak)
+
+if(is.null(lake_overlap)){
+  margin_lakcontact <- 0}
+if(!is.null(lake_overlap)){
+  margin_lakcontact <- rgeos::gLength(spTransform(lake_overlap, CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")))
+}
+
+if(is.null(lake_overlap_nonuna)){
+  margin_lakcontact_nonuna <- 0}
+if(!is.null(lake_overlap_nonuna)){
+  margin_lakcontact_nonuna <- rgeos::gLength(spTransform(lake_overlap_nonuna, CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")))
+}
+
+margin_con <- spTransform(margin_con, CRSobj=projection(bedM_polygon))
+terrestrial_margin_con <- gDifference(margin_con,bedM_polygon)
+terrestrial_margin_con <- gDifference(terrestrial_margin_con,margin_lak)
+if(!is.null(peripheral_overlap)){
+  terrestrial_margin_con <- gDifference(terrestrial_margin_con,peripheral_overlap)}
+
+terrestrial_margin_sec_con <- gDifference(margin_sec_con,bedM_polygon)
+terrestrial_margin_sec_con <- gDifference(terrestrial_margin_sec_con,margin_lak)
+if(!is.null(peripheral_overlap)){
+  terrestrial_margin_sec_con <- gDifference(terrestrial_margin_sec_con,peripheral_overlap)}
+
+terrestrial_margin_nonuna <- gDifference(marg_nonuna,bedM_polygon)
+terrestrial_margin_nonuna <- gDifference(terrestrial_margin_nonuna,margin_lak)
+if(!is.null(peripheral_overlap_nonuna)){
+  terrestrial_margin_nonuna <- gDifference(terrestrial_margin_nonuna,peripheral_overlap_nonuna)}
+
+# reproject margin to stereo projection for processing with DEMs
+terrestrial_margin_sec_con <- spTransform(terrestrial_margin_sec_con, CRSobj="+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
+terrestrial_margin_con <- spTransform(terrestrial_margin_con, CRSobj="+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
+terrestrial_margin_nonuna <- spTransform(terrestrial_margin_nonuna, CRSobj="+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
+
+# stop loop if terrestrial margin is length=0
+if(is.null(terrestrial_margin_sec_con)){
+  tab_marginStats[which(tab_marginStats[,1]==SubBasinID),2] <- 0 + margin_lakcontact + margin_marinecontact
+  tab_marginStats[which(tab_marginStats[,1]==SubBasinID),3] <- 0
+  tab_marginStats[which(tab_marginStats[,1]==SubBasinID),7] <- 0 + margin_lakcontact_nonuna + margin_marinecontact_nonuna
+  tab_marginStats[which(tab_marginStats[,1]==SubBasinID),8] <- 0
+  dir.create(file.path(paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector',sep = "")))
+  if(!is.null(marine_overlap)){
+    dfM<-SpatialLinesDataFrame(marine_overlap, data.frame(id=1:length(marine_overlap)))
+    writeOGR(dfM, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'marinemargin.shp',sep = "") ,layer="marine_overlap",driver="ESRI Shapefile")}
+  if(!is.null(lake_overlap)){
+    dfL<-SpatialLinesDataFrame(lake_overlap, data.frame(id=1:length(lake_overlap)))
+    writeOGR(dfL, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'lakemargin.shp',sep = "") ,layer="lake_overlap",driver="ESRI Shapefile")}
+  if(!is.null(peripheral_overlap)){
+    dfP<-SpatialLinesDataFrame(peripheral_overlap, data.frame(id=1:length(peripheral_overlap)))
+    writeOGR(dfP, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'peripheralconnector.shp',sep = "") ,layer="peripheral_overlap",driver="ESRI Shapefile")}
+  
+  write.csv(tab_marginStats,paste(output_basepath,'\\Sectors\\marginstatistics.csv',sep=''), row.names = FALSE)
+  next
+}
+
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),2] <- rgeos::gLength(terrestrial_margin_sec_con) + margin_lakcontact + margin_marinecontact
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),5] <- margin_lakcontact
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),4] <- margin_marinecontact
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),3] <- rgeos::gLength(terrestrial_margin_sec_con)
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),6] <- margin_pgiccontact
+
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),7] <- rgeos::gLength(terrestrial_margin_nonuna) + margin_lakcontact_nonuna + margin_marinecontact_nonuna
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),10] <- margin_lakcontact_nonuna
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),9] <- margin_marinecontact_nonuna
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),8] <- rgeos::gLength(terrestrial_margin_nonuna)
+tab_marginStats[which(tab_marginStats[,1]==SubBasinID),11] <- margin_pgiccontact_nonuna
+
+dir.create(file.path(paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector',sep = "")))
+dfT<-SpatialLinesDataFrame(terrestrial_margin_sec_con, data.frame(id=1:length(terrestrial_margin_sec_con)))
+
+writeOGR(dfT, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'terrestrialmargin.shp',sep = "") ,layer="terrestrial_margin_sec_con",driver="ESRI Shapefile")
+if(!is.null(marine_overlap)){
+    dfM<-SpatialLinesDataFrame(marine_overlap, data.frame(id=1:length(marine_overlap)))
+
+writeOGR(dfM, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'marinemargin.shp',sep = "") ,layer="marine_overlap",driver="ESRI Shapefile")}
+if(!is.null(lake_overlap)){
+    dfL<-SpatialLinesDataFrame(lake_overlap, data.frame(id=1:length(lake_overlap)))
+writeOGR(dfL, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'lakemargin.shp',sep = "") ,layer="lake_overlap",driver="ESRI Shapefile")}
+if(!is.null(peripheral_overlap)){
+    dfP<-SpatialLinesDataFrame(peripheral_overlap, data.frame(id=1:length(peripheral_overlap)))
+writeOGR(dfP, dsn=paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'peripheralconnector.shp',sep = "") ,layer="peripheral_overlap",driver="ESRI Shapefile")}
+
+write.csv(tab_marginStats,paste(output_basepath,'\\Sectors\\marginstatistics.csv',sep=''), row.names = FALSE)
+
+remove(bedM_subbasin)
+remove(bedM_polygon)
 
 #######################
-# Read DEM Data
-#######################
-DEM_temp <- raster(pathDEM_Pleiades&'/'&fnDEM_1)
-projection(DEM_temp) <- projec_utm
-
-DEM_Arctic <- raster(pathDEM_Arctic&'\\27_35_2_2_2m_v3.0'&'/'&fnDEM_2)
-projection(DEM_Arctic) <- projec_utm
-
-
-DEM_masked <- mask(crop(DEM_temp,margin_pEXT),margin_pEXT)
-DEM_maskedGrIS <- mask(crop(DEM_temp,margin_pEXTGrIS),margin_pEXTGrIS)
-
-DEMArctic_masked <- mask(crop(DEM_Arctic,margin_pEXT),margin_pEXT)
-DEMArctic_maskedGrIS <- mask(crop(DEM_Arctic,margin_pEXTGrIS),margin_pEXTGrIS)
-
-RR_slopeGrIS <- terrain(DEM_maskedGrIS, opt="slope", unit="degrees", neighbors=8)
-RR_slope <- terrain(DEM_masked, opt="slope", unit="degrees", neighbors=8)
-
-RR_slopeArcticGrIS <- terrain(DEMArctic_maskedGrIS, opt="slope", unit="degrees", neighbors=8)
-RR_slopeArctic <- terrain(DEMArctic_masked, opt="slope", unit="degrees", neighbors=8)
-
-
-set.seed(1234)
-wdata_IceCap = data.frame(
-  DEM = factor(rep(c("ArcticDEM", "Pleiades"), each=length(which(!is.na(RR_slope[]))))),
-  slope = c(RR_slopeArctic[which(!is.na(RR_slope[]))], RR_slope[which(!is.na(RR_slope[]))])
-)
-head(wdata_IceCap, 4)
-
-mu <- wdata_IceCap %>% 
-  group_by(DEM) %>%
-  summarise(grp.mean = median(slope,na.rm=T))
-
-png(file=path_figs&'\\RedRock_ICeCap_DEMmatch.png', res = 300,width=3600,height=900)
-par(mar=c(4,2,5,1),cex.lab=1.2,cex.axis=1.5)
-ggplot(wdata_IceCap, aes(x = slope, y = DEM)) +
-  geom_density_ridges(aes(fill = DEM)) +
-  scale_fill_manual(values = c("#E7B800","#00AFBB")) +
-  geom_vline(aes(xintercept = grp.mean, color = DEM),
-             data = mu, linetype = "dashed") +
-  scale_x_continuous(name=expression('Slope [?]'), limits=c(0, 80)) +
-  theme(axis.text.x = element_text(size=14, angle=90),
-        axis.text.y = element_text(size=14, angle=0)) +
-  theme(axis.title.y =element_blank(),
-        axis.text.y=element_blank()) +
-  theme(legend.text=element_text(size=rel(1)))
-theme_bw()
-dev.off()
-
-
-set.seed(1234)
-wdata_IceSheet = data.frame(
-  DEM = factor(rep(c("ArcticDEM", "Pleiades"), each=length(which(!is.na(RR_slopeGrIS[]))))),
-  slope = c(RR_slopeArcticGrIS[which(!is.na(RR_slopeGrIS[]))], RR_slopeGrIS[which(!is.na(RR_slopeGrIS[]))])
-)
-head(wdata_IceSheet, 4)
-
-mu <- wdata_IceSheet %>% 
-  group_by(DEM) %>%
-  summarise(grp.mean = median(slope,na.rm=T))
-
-png(file=path_figs&'\\RedRock_IceSheet_DEMmatch.png', res = 300,width=3600,height=900)
-par(mar=c(4,2,5,1),cex.lab=1.2,cex.axis=1.5)
-ggplot(wdata_IceSheet, aes(x = slope, y = DEM)) +
-  geom_density_ridges(aes(fill = DEM)) +
-  scale_fill_manual(values = c("#E7B800","#00AFBB")) +
-  geom_vline(aes(xintercept = grp.mean, color = DEM),
-             data = mu, linetype = "dashed") +
-  scale_x_continuous(name=expression('Slope [?]'), limits=c(0, 80)) +
-  theme(axis.text.x = element_text(size=14, angle=90),
-        axis.text.y = element_text(size=14, angle=0)) +
-  theme(axis.title.y =element_blank(),
-        axis.text.y=element_blank()) +
-  theme(legend.text=element_text(size=rel(1)))
-theme_bw()
-dev.off()
-
-#######################
-# Read Hiawatha Site
+# Split up margin into cells for ease of processing
 #######################
 
-ogrInfo('D:\\Work\\Research\\tGISM\\Code','marginSector176_buffer')
-margin_HIA<-readOGR(dsn='D:\\Work\\Research\\tGISM\\Code',layer='marginSector176_buffer')
+if(SubBasinID<300){
+bufferedTerr <- gBuffer(terrestrial_margin_sec_con,width=101)
+#remove all buffer area that is not close to remaining terrestrial margin
+terrestrial_margin_con <- gIntersection(terrestrial_margin_con,bufferedTerr)}
 
-margin_HIA<-SpatialPolygons(margin_HIA@polygons,proj4string=margin_HIA@proj4string)
-margin_HIA <- spTransform(margin_HIA, CRS('+proj=utm +zone=19N +datum=WGS84'))
-
-DEM_Hiawatha1 <- raster(pathDEM_Arctic&'\\29_36_1_1_2m_v3.0'&'/'&HiawathaDEM_1)
-projection(DEM_Hiawatha1) <- projec_utm
-
-DEM_Hiawatha2 <- raster(pathDEM_Arctic&'\\29_36_1_2_2m_v3.0'&'/'&HiawathaDEM_2)
-projection(DEM_Hiawatha2) <- projec_utm
-
-DEM_Hiawatha3 <- raster(pathDEM_Arctic&'\\29_36_2_2_2m_v3.0'&'/'&HiawathaDEM_3)
-projection(DEM_Hiawatha3) <- projec_utm
-
-DEM_Hiawatha4 <- raster(pathDEM_Arctic&'\\29_35_2_1_2m_v3.0'&'/'&HiawathaDEM_4)
-projection(DEM_Hiawatha4) <- projec_utm
-
-DEM_Hiawatha5 <- raster(pathDEM_Arctic&'\\29_35_2_2_2m_v3.0'&'/'&HiawathaDEM_5)
-projection(DEM_Hiawatha5) <- projec_utm
-
-DEM_Hiawatha6 <- raster(pathDEM_Arctic&'\\29_35_1_2_2m_v3.0'&'/'&HiawathaDEM_6)
-projection(DEM_Hiawatha6) <- projec_utm
-
-
-DEM_HIA1 <- mask(crop(DEM_Hiawatha1,crop(margin_HIA,extent(DEM_Hiawatha1))),crop(margin_HIA,extent(DEM_Hiawatha1)))
-HIA_slope1 <- terrain(DEM_HIA1, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_HIA1)
-file.remove(c(f, extension(f, '.gri')))
-DEM_HIA2 <- mask(crop(DEM_Hiawatha2,crop(margin_HIA,extent(DEM_Hiawatha2))),crop(margin_HIA,extent(DEM_Hiawatha2)))
-HIA_slope2 <- terrain(DEM_HIA2, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_HIA2)
-file.remove(c(f, extension(f, '.gri')))
-DEM_HIA3 <- mask(crop(DEM_Hiawatha3,crop(margin_HIA,extent(DEM_Hiawatha3))),crop(margin_HIA,extent(DEM_Hiawatha3)))
-HIA_slope3 <- terrain(DEM_HIA3, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_HIA3)
-file.remove(c(f, extension(f, '.gri')))
-DEM_HIA4 <- mask(crop(DEM_Hiawatha4,crop(margin_HIA,extent(DEM_Hiawatha4))),crop(margin_HIA,extent(DEM_Hiawatha4)))
-HIA_slope4 <- terrain(DEM_HIA4, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_HIA4)
-file.remove(c(f, extension(f, '.gri')))
-DEM_HIA5 <- mask(crop(DEM_Hiawatha5,crop(margin_HIA,extent(DEM_Hiawatha5))),crop(margin_HIA,extent(DEM_Hiawatha5)))
-HIA_slope5 <- terrain(DEM_HIA5, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_HIA5)
-file.remove(c(f, extension(f, '.gri')))
-DEM_HIA6 <- mask(crop(DEM_Hiawatha6,crop(margin_HIA,extent(DEM_Hiawatha6))),crop(margin_HIA,extent(DEM_Hiawatha6)))
-HIA_slope6 <- terrain(DEM_HIA6, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_HIA6)
-file.remove(c(f, extension(f, '.gri')))
-gc()
-rm(DEM_HIA1, DEM_HIA2, DEM_HIA3, DEM_HIA4, DEM_HIA5, DEM_HIA6)
-rm(DEM_Hiawatha1, DEM_Hiawatha2, DEM_Hiawatha3, DEM_Hiawatha4,DEM_Hiawatha5,DEM_Hiawatha6)
-
-#######################
-# Split up margin
-#######################
-
-grid <- raster(extent(margin_HIA), resolution = c(10000,10000), crs = proj4string(margin_HIA))
+if(SubBasinID>299){
+  grid <- raster(extent(terrestrial_margin_con), resolution = c(10000,10000), crs = proj4string(terrestrial_margin_con))
+  
+}else{grid <- raster(extent(terrestrial_margin_con), resolution = c(10000,10000), crs = proj4string(terrestrial_margin_con))
+}
 grid <- raster::extend(grid, c(1,1))
 gridPolygon <- rasterToPolygons(grid)
-plot(margin_HIA)
-plot(gridPolygon, add = T)
 
 gridPolygon$id <- 1:nrow(gridPolygon)
 
-intersectGridClipped <- raster::intersect(gridPolygon, margin_HIA)
+if(SubBasinID>299){
+  intersectGridClipped <- raster::intersect(gridPolygon, gBuffer(terrestrial_margin_con, byid=TRUE, width=0))
+  
+}else{intersectGridClipped <- raster::intersect(gridPolygon, terrestrial_margin_con)}
 intersectGrid <- gridPolygon[gridPolygon$id %in% intersectGridClipped$id, ]
-rgdal::writeOGR(intersectGridClipped,'D:\\Work\\Research\\tGISM\\Code\\marginSector176_clipped',layer = 'intersectGridClipped',driver = 'ESRI Shapefile',overwrite_layer = T)
-rgdal::writeOGR(intersectGrid,'D:\\Work\\Research\\tGISM\\Code\\marginSector176_Grid',layer = 'intersectGrid',driver = 'ESRI Shapefile',overwrite_layer = T)
+#dfG<-SpatialPolygonsDataFrame(intersectGrid, data.frame(id=1:length(intersectGrid)))
+#dfGC<-SpatialPolygonsDataFrame(intersectGridClipped, data.frame(id=1:length(intersectGridClipped)))
+rgdal::writeOGR(intersectGridClipped,paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'GridClipped.shp',sep = ""),layer = 'intersectGridClipped',driver = 'ESRI Shapefile',overwrite_layer = T)
+rgdal::writeOGR(intersectGrid,paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'Grid.shp',sep = ""),layer = 'intersectGrid',driver = 'ESRI Shapefile',overwrite_layer = T)
 
-slopeVals_segment <- list()
-steepSlopes <- matrix(NA, nrow = 1,ncol = 2)
+# loop through all DEM outlines to see which ones overlap
+if(file.exists(paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'ArcticDEMTiles.txt',sep = ""))){
+  DEMfils <- read.table(paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'ArcticDEMTiles.txt',sep = ""))
+  DEMveclist <- match(DEMfils$x,DEMSegments)
+}else{
+DEMveclist <- vector()
+for(k in 1:length(DEMSegments)){
+  demdummy <- raster(paste(data_ArcticDEM,'\\DEMs\\',sub('\\.tif$','',basename(DEMSegments))[k],'.tif',sep=''))
+    if(gIntersects(terrestrial_margin_con,as(extent(demdummy), "SpatialPolygons"))){
+    DEMveclist <- c(DEMveclist, k)
+  }
+}}
 
+# Extract data from DEMs/slope maps
+projecDEMSegments <- list.files(paste(data_ArcticDEM,'\\DEMs',sep=''),pattern='.tif$', all.files=FALSE, full.names=TRUE)
+projecslopeSegments <- list.files(paste(data_ArcticDEM,'\\DEMs\\slopes',sep=''),pattern='.tif$', all.files=FALSE, full.names=TRUE)
+projecTRISegments <- list.files(paste(data_ArcticDEM,'\\DEMs\\TRI',sep=''),pattern='.tif$', all.files=FALSE, full.names=TRUE)
+
+slopeVals_segment <- vector(mode='list', length=1)
+TRIVals_segment <- vector(mode='list', length=1)
+lakeVals_segment <- vector(mode='list', length=1)
 for(k in 1:dim(intersectGridClipped)[1]){
-  save.image(file="temp.RData")
-  rm(list=ls())
-  load(file="temp.RData")
-  gc()
   slopeVals_segment[[k]] <- NA
-if(tryCatch(!is.null(crop(HIA_slope1,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-  segmentMargin <- mask(crop(HIA_slope1,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-  segmentMargin[segmentMargin[]<5]<-NA
-  
-  slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-  steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])
-} 
-if(tryCatch(!is.null(crop(HIA_slope2,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(HIA_slope2,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-    
-    slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-    steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])} 
-if(tryCatch(!is.null(crop(HIA_slope3,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(HIA_slope3,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-    
-  slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-  steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])} 
-if(tryCatch(!is.null(crop(HIA_slope5,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(HIA_slope5,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-    
-  slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-  steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])
-}
-if(tryCatch(!is.null(crop(HIA_slope4,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(HIA_slope4,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-    
-    slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-    steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])
-  } 
-if(tryCatch(!is.null(crop(HIA_slope6,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(HIA_slope6,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-    
-  slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-  steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])
-  } 
-  
-  # Save slope points >33deg
-
+  TRIVals_segment[[k]] <- NA
+  if(!is.na(sum(over(spTransform(margin_lak,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")),intersectGrid[k,])))){
+    lakeVals_segment[[k]] <- sum(area(crop(spTransform(margin_lak,CRS("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")),intersectGrid[k,])))
+  }else{
+    lakeVals_segment[[k]] <- 0
+  }
 }
 
-df_steepcoord <- data.frame(steepSlopes
-)
+# Export the base ArcticDEM tiles used
+write.table(projecDEMSegments[DEMveclist], file = paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'ArcticDEMTiles.txt',sep = ""), sep = "\t",row.names = T)
 
-write.csv(df_steepcoord,'D:\\Work\\Research\\tGISM\\Code\\steeppixels_hiawatha.csv', row.names = FALSE)
-
-do.call(file.remove, list(list.files(tmpDir(), full.names = TRUE)))
-
-slopeclass <- matrix(NA, nrow = dim(intersectGridClipped)[1],ncol = 4)
-for(l in 1:dim(intersectGridClipped)[1]){
-slopeclass[l,1] <- length(which(slopeVals_segment[[l]][]<10))/length(slopeVals_segment[[l]][])
-slopeclass[l,2] <- length(which(slopeVals_segment[[l]][]>=10 & slopeVals_segment[[l]][]<25))/length(slopeVals_segment[[l]][])
-slopeclass[l,3] <- length(which(slopeVals_segment[[l]][]>=25 & slopeVals_segment[[l]][]<40))/length(slopeVals_segment[[l]][])
-slopeclass[l,4] <- length(which(slopeVals_segment[[l]][]>=40))/length(slopeVals_segment[[l]][])
-}
-
-png(file=path_figs&'\\Hiawatha_slopeclasses.png', res = 300,width=2000,height=900) 
-barplot(t(slopeclass),col=brewer.pal(n = 4, name = "Reds"),cex.names=1,
-        names.arg=seq(1,29,1),ylim=c(0,1))
-legend("top", fill = brewer.pal(n = 4, name = "Reds"), legend = c('<10','10-25','25-40','>40'), 
-       horiz = TRUE, inset = c(0,-0.5), xpd = TRUE)
-dev.off()
-
-#######################
-# Make Figures
-#######################
-
-  library(RColorBrewer)
-  set.seed(1234)
-
-    wdata_Hiawatha = data.frame(
-    location = factor(rep(c("S01","S09","S11","S13","S18","S21","S19"),c(length(slopeVals_segment[[1]]),length(slopeVals_segment[[9]]),length(slopeVals_segment[[11]]),length(slopeVals_segment[[13]]),length(slopeVals_segment[[18]]),length(slopeVals_segment[[21]]),length(slopeVals_segment[[19]])))),
-    slope = c(slopeVals_segment[[1]],slopeVals_segment[[9]],slopeVals_segment[[11]],slopeVals_segment[[13]],slopeVals_segment[[18]],slopeVals_segment[[21]],slopeVals_segment[[19]])
-  )
-  head(wdata_Hiawatha, 4)
-
-  mu <- wdata_Hiawatha%>% 
-   # arrange(order)  %>% 
-    group_by(location) %>%
-    summarise(grp.mean = median(slope,na.rm=T))
-
-  png(file=path_figs&'\\HiawathaSlope distributions.png', res = 300,width=2000,height=900)  
-  par(mar=c(4,2,5,1),cex.lab=1.2,cex.axis=1.5)
-  ggplot(wdata_Hiawatha, aes(x = slope, y = location)) +
-    geom_density_ridges(aes(fill = location)) +
-    scale_fill_manual(values = brewer.pal(n = 7, name = "Dark2")) +
-    geom_vline(aes(xintercept = grp.mean, color = location),
-               data = mu, linetype = "dashed") +
-    scale_x_continuous(name=expression('Slope [?]'), limits=c(0, 70)) +
-    theme(axis.text.x = element_text(size=14, angle=90),
-          axis.text.y = element_text(size=14, angle=0)) +
-    theme(axis.title.y =element_blank(),
-          axis.text.y=element_blank()) +
-    theme(legend.text=element_text(size=rel(1)))
-  theme_bw()
-  dev.off()
+for(DEMk in 1 : length(DEMveclist)){
+  #DEM_margin <- crop(raster(projecDEMSegments[DEMveclist[DEMk]]),extent(intersectGridClipped))
+  #DEM_ <- mask(crop(DEM_margin,crop(terrestrial_margin_con,extent(DEM_margin))),crop(terrestrial_margin_con,extent(DEM_margin)))
+  #slope_ <- terrain(DEM_margin, opt="slope", unit="degrees", neighbors=8)
+  slope_ <- raster(projecslopeSegments[DEMveclist[DEMk]])
+  #TRI_ <- terrain(DEM_margin, opt="TRI") # terrain ruggedness index (Wilson et al.2007)
+  #TRI_ <- raster(projecTRISegments[DEMveclist[DEMk]])
   
-  
-#######################
-# Read Russell Site
-#######################
-  
-ogrInfo('D:\\Work\\Research\\tGISM\\Code','marginSector71_buffer')
-margin_RUS<-readOGR(dsn='D:\\Work\\Research\\tGISM\\Code',layer='marginSector71_buffer')
-  
-margin_RUS<-SpatialPolygons(margin_RUS@polygons,proj4string=margin_RUS@proj4string)
-margin_RUS <- spTransform(margin_RUS, CRS('+proj=utm +zone=19N +datum=WGS84'))
-  
-DEM_Russell1 <- raster(pathDEM_Arctic&'\\16_38_2_1_2m_v3.0'&'/'&RussellDEM_1)
-projection(DEM_Russell1) <- projec_utm
-  
-DEM_Russell2 <- raster(pathDEM_Arctic&'\\15_38_2_2_2m_v3.0'&'/'&RussellDEM_2)
-projection(DEM_Russell1) <- projec_utm
-  
-DEM_RUS1 <- mask(crop(DEM_Russell1,crop(margin_RUS,extent(DEM_Russell1))),crop(margin_RUS,extent(DEM_Russell1)))
-RUS_slope1 <- terrain(DEM_RUS1, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_RUS1)
-file.remove(c(f, extension(f, '.gri')))
-DEM_RUS2 <- mask(crop(DEM_Russell2,crop(margin_RUS,extent(DEM_Russell2))),crop(margin_RUS,extent(DEM_Russell2)))
-RUS_slope2 <- terrain(DEM_RUS2, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_RUS2)
-file.remove(c(f, extension(f, '.gri')))
-
-gc()
-rm(DEM_Russell1, DEM_Russell2)
-rm(DEM_RUS1, DEM_RUS2)
-  
-#######################
-# Split up margin
-#######################
-  
-grid <- raster(extent(margin_RUS), resolution = c(10000,10000), crs = proj4string(margin_RUS))
-grid <- raster::extend(grid, c(1,1))
-gridPolygon <- rasterToPolygons(grid)
-plot(margin_RUS)
-plot(gridPolygon, add = T)
-  
-gridPolygon$id <- 1:nrow(gridPolygon)
-  
-intersectGridClipped <- raster::intersect(gridPolygon, margin_RUS)
-intersectGrid <- gridPolygon[gridPolygon$id %in% intersectGridClipped$id, ]
-rgdal::writeOGR(intersectGridClipped,'D:\\Work\\Research\\tGISM\\Code\\marginSector71_clipped',layer = 'intersectGridClipped',driver = 'ESRI Shapefile',overwrite_layer = T)
-rgdal::writeOGR(intersectGrid,'D:\\Work\\Research\\tGISM\\Code\\marginSector71_Grid',layer = 'intersectGrid',driver = 'ESRI Shapefile',overwrite_layer = T)
-  
-slopeVals_segment <- list()
-steepSlopes <- matrix(NA, nrow = 1,ncol = 2)
-  
-for(k in 1:dim(intersectGridClipped)[1]){
-  save.image(file="temp.RData")
-  rm(list=ls())
-  load(file="temp.RData")
-  gc()
-  slopeVals_segment[[k]] <- NA
-  if(tryCatch(!is.null(crop(RUS_slope1,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(RUS_slope1,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-      
-    slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-    steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])
-  } 
-  if(tryCatch(!is.null(crop(RUS_slope2,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(RUS_slope2,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-      
-    slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-    steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])} 
-
-    
-}
-  
-df_steepcoord <- data.frame(steepSlopes
-)
-  
-write.csv(df_steepcoord,'D:\\Work\\Research\\tGISM\\Code\\steeppixels_russell.csv', row.names = FALSE)
-  
-do.call(file.remove, list(list.files(tmpDir(), full.names = TRUE)))
-  
-slopeclass <- matrix(NA, nrow = dim(intersectGridClipped)[1],ncol = 4)
-for(l in 1:dim(intersectGridClipped)[1]){
-  slopeclass[l,1] <- length(which(slopeVals_segment[[l]][]<10))/length(slopeVals_segment[[l]][])
-  slopeclass[l,2] <- length(which(slopeVals_segment[[l]][]>=10 & slopeVals_segment[[l]][]<25))/length(slopeVals_segment[[l]][])
-  slopeclass[l,3] <- length(which(slopeVals_segment[[l]][]>=25 & slopeVals_segment[[l]][]<40))/length(slopeVals_segment[[l]][])
-  slopeclass[l,4] <- length(which(slopeVals_segment[[l]][]>=40))/length(slopeVals_segment[[l]][])
-}
-  
-png(file=path_figs&'\\Russell_slopeclasses.png', res = 300,width=2000,height=900) 
-barplot(t(slopeclass),col=brewer.pal(n = 4, name = "Reds"),cex.names=1,
-        names.arg=seq(1,dim(intersectGridClipped)[1],1),ylim=c(0,1))
-legend("top", fill = brewer.pal(n = 4, name = "Reds"), legend = c('<10','10-25','25-40','>40'), 
-       horiz = TRUE, inset = c(0,-0.5), xpd = TRUE)
-dev.off()
-  
-#######################
-# Make Figures
-#######################
-  
-set.seed(1234)
-  
-wdata_Russell = data.frame(
-  location = factor(rep(c("S01","S02","S04","S05","S08"),c(length(slopeVals_segment[[1]]),length(slopeVals_segment[[2]]),length(slopeVals_segment[[4]]),length(slopeVals_segment[[5]]),length(slopeVals_segment[[8]])))),
-  slope = c(slopeVals_segment[[1]],slopeVals_segment[[2]],slopeVals_segment[[4]],slopeVals_segment[[5]],slopeVals_segment[[8]])
-)
-head(wdata_Russell, 4)
-  
-mu <- wdata_Russell%>% 
-  # arrange(order)  %>% 
-  group_by(location) %>%
-  summarise(grp.mean = median(slope,na.rm=T))
-  
-png(file=path_figs&'\\RussellSlope distributions.png', res = 300,width=2000,height=900)  
-par(mar=c(4,2,5,1),cex.lab=1.2,cex.axis=1.5)
-ggplot(wdata_Russell, aes(x = slope, y = location)) +
-  geom_density_ridges(aes(fill = location)) +
-  scale_fill_manual(values = brewer.pal(n = 5, name = "Dark2")) +
-  geom_vline(aes(xintercept = grp.mean, color = location),
-             data = mu, linetype = "dashed") +
-  scale_x_continuous(name=expression('Slope [?]'), limits=c(0, 70)) +
-  theme(axis.text.x = element_text(size=14, angle=90),
-        axis.text.y = element_text(size=14, angle=0)) +
-  theme(axis.title.y =element_blank(),
-        axis.text.y=element_blank()) +
-  theme(legend.text=element_text(size=rel(1)))
-theme_bw()
-dev.off()
-  
-#######################
-# Read Kronprins Site
-#######################
-  
-ogrInfo('D:\\Work\\Research\\tGISM\\Code','marginSector57_buffer')
-margin_KRO<-readOGR(dsn='D:\\Work\\Research\\tGISM\\Code',layer='marginSector57_buffer')
-  
-margin_KRO <-SpatialPolygons(margin_KRO@polygons,proj4string=margin_KRO@proj4string)
-margin_KRO <- spTransform(margin_KRO, CRS('+proj=utm +zone=27N +datum=WGS84'))
-  
-DEM_Kron1 <- raster(pathDEM_Arctic&'\\31_43_2_2_2m_v3.0'&'/'&KronprinsDEM_1)
-projection(DEM_Kron1) <- projec_27N
-  
-DEM_Kron2 <- raster(pathDEM_Arctic&'\\31_43_2_1_2m_v3.0'&'/'&KronprinsDEM_2)
-projection(DEM_Kron2) <- projec_27N
-  
-DEM_KRO1 <- mask(crop(DEM_Kron1,crop(margin_KRO,extent(DEM_Kron1))),crop(margin_KRO,extent(DEM_Kron1)))
-KRO_slope1 <- terrain(DEM_KRO1, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_KRO1)
-file.remove(c(f, extension(f, '.gri')))
-DEM_KRO2 <- mask(crop(DEM_Kron2,crop(margin_KRO,extent(DEM_Kron2))),crop(margin_KRO,extent(DEM_Kron2)))
-KRO_slope2 <- terrain(DEM_KRO2, opt="slope", unit="degrees", neighbors=8)
-f <- filename(DEM_KRO2)
-file.remove(c(f, extension(f, '.gri')))
-  
-gc()
-rm(DEM_Kron1, DEM_Kron2)
-rm(DEM_KRO1, DEM_KRO2)
-  
-#######################
-# Split up margin
-#######################
-  
-grid <- raster(extent(margin_KRO), resolution = c(10000,10000), crs = proj4string(margin_KRO))
-grid <- raster::extend(grid, c(1,1))
-gridPolygon <- rasterToPolygons(grid)
-plot(margin_KRO)
-plot(gridPolygon, add = T)
-  
-gridPolygon$id <- 1:nrow(gridPolygon)
-  
-intersectGridClipped <- raster::intersect(gridPolygon, margin_KRO)
-intersectGrid <- gridPolygon[gridPolygon$id %in% intersectGridClipped$id, ]
-rgdal::writeOGR(intersectGridClipped,'D:\\Work\\Research\\tGISM\\Code\\marginSector57_clipped',layer = 'intersectGridClipped',driver = 'ESRI Shapefile',overwrite_layer = T)
-rgdal::writeOGR(intersectGrid,'D:\\Work\\Research\\tGISM\\Code\\marginSector57_Grid',layer = 'intersectGrid',driver = 'ESRI Shapefile',overwrite_layer = T)
-  
-slopeVals_segment <- list()
-steepSlopes <- matrix(NA, nrow = 1,ncol = 2)
-  
-for(k in 1:dim(intersectGridClipped)[1]){
-  save.image(file="temp.RData")
-  rm(list=ls())
-  load(file="temp.RData")
-  gc()
-  slopeVals_segment[[k]] <- NA
-  if(tryCatch(!is.null(crop(KRO_slope1,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(KRO_slope1,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-      
-    slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-    steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])
-  } 
-  if(tryCatch(!is.null(crop(KRO_slope2,extent(intersectGridClipped[k,]))), error=function(e) return(FALSE))){
-    segmentMargin <- mask(crop(KRO_slope2,extent(intersectGridClipped[k,])),intersectGridClipped[k,])
-    segmentMargin[segmentMargin[]<5]<-NA
-      
-    slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
-    steepSlopes <- rbind(steepSlopes,coordinates(segmentMargin)[which(segmentMargin[]>33),])} 
-    
-}
-  
-df_steepcoord <- data.frame(steepSlopes
-)
-  
-write.csv(df_steepcoord,'D:\\Work\\Research\\tGISM\\Code\\steeppixels_kronprins.csv', row.names = FALSE)
-  
-do.call(file.remove, list(list.files(tmpDir(), full.names = TRUE)))
-  
-  slopeclass <- matrix(NA, nrow = dim(intersectGridClipped)[1],ncol = 4)
-  for(l in 1:dim(intersectGridClipped)[1]){
-    slopeclass[l,1] <- length(which(slopeVals_segment[[l]][]<10))/length(slopeVals_segment[[l]][])
-    slopeclass[l,2] <- length(which(slopeVals_segment[[l]][]>=10 & slopeVals_segment[[l]][]<25))/length(slopeVals_segment[[l]][])
-    slopeclass[l,3] <- length(which(slopeVals_segment[[l]][]>=25 & slopeVals_segment[[l]][]<40))/length(slopeVals_segment[[l]][])
-    slopeclass[l,4] <- length(which(slopeVals_segment[[l]][]>=40))/length(slopeVals_segment[[l]][])
+  # check which grid cells overlap
+  overlapGC<-NA
+  for(k in 1:dim(intersectGridClipped)[1]){
+    if(!is.null(intersect(ext(intersectGridClipped[k,]),ext(slope_)))){
+      overlapGC <- c(overlapGC,k)
+    }
   }
   
-  png(file=path_figs&'\\Kronprins_slopeclasses.png', res = 300,width=2000,height=900) 
-  barplot(t(slopeclass),col=brewer.pal(n = 4, name = "Reds"),cex.names=1,
-          names.arg=seq(1,dim(intersectGridClipped)[1],1),ylim=c(0,1))
-  legend("top", fill = brewer.pal(n = 4, name = "Reds"), legend = c('<10','10-25','25-40','>40'), 
-         horiz = TRUE, inset = c(0,-0.5), xpd = TRUE)
-  dev.off()
-  
-  #######################
-  # Make Figures
-  #######################
-  
-  
-  
-  
-  set.seed(1234)
-  
-  wdata_Kronprins = data.frame(
-    location = factor(rep(c("S01","S05","S06","S08","S10"),c(length(slopeVals_segment[[1]]),length(slopeVals_segment[[5]]),length(slopeVals_segment[[6]]),length(slopeVals_segment[[8]]),length(slopeVals_segment[[10]])))),
-    slope = c(slopeVals_segment[[1]],slopeVals_segment[[5]],slopeVals_segment[[6]],slopeVals_segment[[8]],slopeVals_segment[[10]])
-  )
-  head(wdata_Kronprins, 4)
-  
-  mu <- wdata_Kronprins%>% 
-    # arrange(order)  %>% 
-    group_by(location) %>%
-    summarise(grp.mean = median(slope,na.rm=T))
-  
-  png(file=path_figs&'\\KronprinsSlope distributions.png', res = 300,width=2000,height=900)  
-  par(mar=c(4,2,5,1),cex.lab=1.2,cex.axis=1.5)
-  ggplot(wdata_Kronprins, aes(x = slope, y = location)) +
-    geom_density_ridges(aes(fill = location)) +
-    scale_fill_manual(values = brewer.pal(n = 5, name = "Dark2")) +
-    geom_vline(aes(xintercept = grp.mean, color = location),
-               data = mu, linetype = "dashed") +
-    scale_x_continuous(name=expression('Slope [?]'), limits=c(0, 70)) +
-    theme(axis.text.x = element_text(size=14, angle=90),
-          axis.text.y = element_text(size=14, angle=0)) +
-    theme(axis.title.y =element_blank(),
-          axis.text.y=element_blank()) +
-    theme(legend.text=element_text(size=rel(1)))
-  theme_bw()
-  dev.off()
+  #for(k in 1:dim(intersectGridClipped)[1]){
+  for(kp in 2:length(overlapGC)){
+    k <- overlapGC[kp]
+    
+      tempsegmentMargin <- crop(slope_,extent(intersectGridClipped[k,]))
+      segmentMargin <- mask(tempsegmentMargin,intersectGridClipped[k,])
+      
+      #tempTRIMargin <- crop(TRI_,intersectGrid[k,])
+
+      segmentMargin[segmentMargin[]<5]<-NA
+      slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],segmentMargin[!is.na(segmentMargin[])])
+      #TRIVals_segment[[k]] <- c(TRIVals_segment[[k]],tempTRIMargin[!is.na(tempTRIMargin[])])
+    #} else {
+    #  slopeVals_segment[[k]] <- c(slopeVals_segment[[k]],NA)
+    #}
+
+    if(length(slopeVals_segment)<dim(intersectGridClipped)[1]){
+    slopeVals_segment <- append(slopeVals_segment, NA, after = k)}
+    if(k %% 1==0) {
+      cat(paste0("subgrid: ", floor(k/dim(intersectGridClipped)[1]*100), "%"))}
+  }
+  if(DEMk %% 1==0) {
+    cat(paste0("subbasin progress: ", floor(DEMk/length(DEMveclist)*100), "%"))}
+  removeTmpFiles(h=1)
+}
+
+# Save output for this subbasin
+tabSB <- matrix(NA, ncol = 8, nrow = length(slopeVals_segment)+1)
+tabSB[,1] <- c(intersectGrid$id,'TOTAL')
+tabSB_TRI <- matrix(NA, ncol = 3, nrow = length(TRIVals_segment)+1)
+tabSB_TRI[,1] <- c(intersectGrid$id,'TOTAL')
+tabSB_lake <- matrix(NA, ncol = 2, nrow = length(lakeVals_segment)+1)
+tabSB_lake[,1] <- c(intersectGrid$id,'TOTAL')
+
+
+for(segk in 1:length(slopeVals_segment)){
+tabSB[segk,2:6] <- quantile(unlist(slopeVals_segment[segk]), probs = c(0.05, 0.25, 0.5, 0.75, 0.95),na.rm=T)
+tryCatch({
+  tabSB[segk,7] <- gLength(crop(terrestrial_margin_sec_con,intersectGrid[segk,]))
+}, error=function(e){
+  tabSB[segk,7] <- 0
+  })
+tabSB[segk,8] <- length(which(!is.na(slopeVals_segment[[segk]])))
+tabSB_TRI[segk,2] <- mean(unlist(TRIVals_segment[[segk]]),na.rm=T)
+tabSB_lake[segk,2] <- unlist(lakeVals_segment[[segk]])
+tabSB_TRI[segk,3] <- length(which(!is.na(TRIVals_segment[[segk]])))
+write(slopeVals_segment[[segk]], paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'_',intersectGridClipped$id[segk],'_slopeValues.txt',sep = ""))
+}
+finStat <- length(slopeVals_segment)+1
+tabSB[finStat,2:6] <- quantile(unlist(slopeVals_segment), probs = c(0.05, 0.25, 0.5, 0.75, 0.95),na.rm=T)
+tabSB[finStat,8] <- length(which(!is.na(unlist(slopeVals_segment))))
+tabSB_TRI[finStat,2] <- mean(unlist(TRIVals_segment),na.rm=T)
+tabSB_TRI[finStat,3] <- length(which(!is.na(unlist(TRIVals_segment))))
+tabSB_lake[finStat,2] <- sum(unlist(lakeVals_segment),na.rm=T)
+
+colnames(tabSB) <- c('grid ID',0.05, 0.25, 0.5, 0.75, 0.95,'length','n')
+write.csv(tabSB,paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'_slopePercentiles.csv',sep = ""), row.names = FALSE)
+
+#colnames(tabSB_TRI) <- c('grid ID','TRI','n')
+#write.csv(tabSB_TRI,paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'_TRI.csv',sep = ""), row.names = FALSE)
+
+colnames(tabSB_lake) <- c('grid ID','area')
+write.csv(tabSB_lake,paste(output_basepath,'\\Sectors\\',SubBasinID,'Sector\\',SubBasinID,'_lakeareas.csv',sep = ""), row.names = FALSE)
+
+if(i %% 1==0) {
+  cat(paste0("greenland wide progress: ", floor(i/length(margSegments)*100), "%"))}
+}
+}
