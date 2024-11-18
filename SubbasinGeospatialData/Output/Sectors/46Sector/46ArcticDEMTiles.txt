@@ -1,0 +1,5 @@
+"x"
+"1"	"E:\ArcticDEM\DEMs/27_35_2_2_2m_v4.1_dem.tif"
+"2"	"E:\ArcticDEM\DEMs/27_36_2_1_2m_v4.1_dem.tif"
+"3"	"E:\ArcticDEM\DEMs/28_35_1_2_2m_v4.1_dem.tif"
+"4"	"E:\ArcticDEM\DEMs/28_36_1_1_2m_v4.1_dem.tif"

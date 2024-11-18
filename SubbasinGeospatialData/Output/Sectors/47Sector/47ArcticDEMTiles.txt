@@ -1,0 +1,2 @@
+"x"
+"1"	"E:\ArcticDEM\DEMs/28_36_1_1_2m_v4.1_dem.tif"
