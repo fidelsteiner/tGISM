@@ -6,6 +6,6 @@ The repository is updated, respective stable compilations to associated publicat
 
 'The terrestrial ice margin of Greenland – delineation and morphology', DOI: XXXX (publication), XXXX (Dataset) - associated ReadMe: 'MetaData_tGISM.txt'
 
- ![alt text]([https://github.com/fidelsteiner/tGISM/blob/master/P8298430.JPG]?raw=true)
+ ![alt text](https://github.com/fidelsteiner/tGISM/blob/master/P8298430.JPG?raw=true)
 
 contributors: Jakob Abermann, Jakob Steiner, Rainer Prinz
