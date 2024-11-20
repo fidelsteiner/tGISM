@@ -9,3 +9,6 @@ The repository is updated, respective stable compilations to associated publicat
  ![alt text](https://github.com/fidelsteiner/tGISM/blob/master/P8298430.JPG?raw=true)
 
 contributors: Jakob Abermann, Jakob Steiner, Rainer Prinz
+
+ ![alt text](https://github.com/fidelsteiner/tGISM/blob/master/FigureS4.jpg?raw=true)
+  ![alt text](https://github.com/fidelsteiner/tGISM/blob/master/FigureS1.jpg?raw=true)
